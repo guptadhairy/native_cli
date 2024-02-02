@@ -1,11 +1,13 @@
 import { User } from "../models/users.js";
 import { sendMail } from "../utils/sendMail.js";
-import {sendToken} from "../utils/sendToken.js"
+import {sendToken} from "../utils/sendToken.js";
+import cloudinary from "cloudinary";
+import fs from "fs";
 
 export const register = async(req,res)=> {
     try {
         const {name, email, password} = req.body;
-        // const {avatar} = req.files;
+        const avatar = req.files.avatar.tempFilePath;
 
         let user = await User.findOne({email});
 
@@ -16,9 +18,12 @@ export const register = async(req,res)=> {
             })
         }
         const otp = Math.floor(Math.random() * 1000000);
+        const mycloud = await cloudinary.v2.uploader.upload(avatar);
+        fs.rmSync("./tmp", {recursive: true});
+
         user = await User.create({name, email, password, avatar: {
-            public_id: "",
-            url: ""
+            public_id: mycloud.public_id,
+            url: mycloud.secure_url,
         }, otp, otp_expiry: new Date(Date.now() + 5*60*1000)});
 
         await sendMail(email, "Verify Your account", `Your otp is ${otp}`);
@@ -94,7 +99,9 @@ export const login = async(req,res) => {
 
 export const logout = async(req,res) => {
     try {
-        res.status(200).cookie("token", null).json({
+        res.status(200).cookie("token", null, {
+            expires: new Date(Date.now()),
+        }).json({
             success: true,
             message: "Logged out successfully"
         })
@@ -151,4 +158,175 @@ export const removeTask = async(req,res) => {
             message: error.message
         })
     }
-}
+};
+
+export const updateTask = async(req,res) => {
+    try {
+        const {taskId} = req.params;
+        const user = await User.findById(req.user._id);
+
+        user.task = user.tasks.find((task) => task._id.toString()==taskId.toString());
+
+        user.task.completed = !user.task.completed;
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Task updated successfully"
+        })
+    } catch (error) {
+        res.status(500),json({
+            success: false,
+            message: error.message,
+        })
+    }
+};
+
+export const getMyProfile = async(req,res) => {
+    try {
+        const user = await User.findById(req.user._id);
+
+        sendToken(res,user,201,`Welcome back ${user.name}`);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
+export const updateProfile = async(req,res) => {
+    try {
+        const user = await User.findById(req.user._id);
+
+        const {name} = req.body;
+        const avatar = req.files.avatar.tempFilePath;
+
+        if(name) user.name = name;
+        if(avatar) {
+            await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+
+            const mycloud = await cloudinary.v2.uploader.upload(avatar);
+
+            fs.rmSync("./tmp", {recursive: true});
+
+            user.avatar = {
+                public_id: mycloud.public_id,
+                url: mycloud.secure_url,
+            };
+        }
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Profile Updated successfully"
+        })
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
+export const updatePassword = async(req,res) => {
+    try {
+        const user = await User.findById(req.user._id).select("+password");
+
+        const {oldPassword, newPassword} = req.body;
+        if(!oldPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: "Please enter all fields"
+            })
+        }
+
+        const isMatch = await user.comparePassword(oldPassword);
+
+        if(!isMatch) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Old Password"
+            });
+        }
+        user.password = newPassword;
+        await user.save();
+        res.status(200).json({
+            success: true,
+            message: "Password Updated successfully"
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
+export const forgetPassword = async(req,res) => {
+    try {
+        const {email} = req.body;
+        const user = await User.findOne({email});
+
+        if(!user) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Email"
+            });
+        }
+
+        const otp = Math.floor(Math.random() * 10000000);
+        user.resetPasswordOtp = otp;
+        user.resetPasswordOtpExpiry = Date.now() + 10*60*1000;
+
+        await user.save();
+
+        const message = `Your OTP for reseting the password is ${otp}. If you did not request for this, please ignore this email.`;
+
+        await sendMail(email, "Request for Reseting the password", message);
+
+        res.status(200).json({
+            success: true,
+            message: `OTP send to ${email}`
+        });
+        
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
+
+export const resetPassword = async(req,res) => {
+    try {
+        const {otp, newPassword} = req.body;
+
+        const user = await User.findOne({
+            resetPasswordOtp: otp,
+            resetPasswordOtpExpiry: {$gt: Date.now() },
+        }).select("+password");
+
+        if(!user) {
+            return res.status(400).json({
+                success: false,
+                message: "Otp invalid or has been expired"
+            });
+        }
+        user.password = newPassword;
+        user.resetPasswordOtp = null;
+        user.resetPasswordOtpExpiry = null;
+
+        await user.save();
+        res.status(200).json({
+            success: true,
+            message: "Password changed Successfully.."
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        })
+    }
+};
