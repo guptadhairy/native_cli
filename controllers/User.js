@@ -1,13 +1,13 @@
 import { User } from "../models/users.js";
 import { sendMail } from "../utils/sendMail.js";
 import {sendToken} from "../utils/sendToken.js";
-import cloudinary from "cloudinary";
-import fs from "fs";
+// import cloudinary from "cloudinary";
+// import fs from "fs";
 
 export const register = async(req,res)=> {
     try {
         const {name, email, password} = req.body;
-        const avatar = req.files.avatar.tempFilePath;
+        // const avatar = req.files.avatar.tempFilePath;
 
         let user = await User.findOne({email});
 
@@ -18,13 +18,10 @@ export const register = async(req,res)=> {
             })
         }
         const otp = Math.floor(Math.random() * 1000000);
-        const mycloud = await cloudinary.v2.uploader.upload(avatar);
-        fs.rmSync("./tmp", {recursive: true});
+        // const mycloud = await cloudinary.v2.uploader.upload(avatar);
+        // fs.rmSync("./tmp", {recursive: true});
 
-        user = await User.create({name, email, password, avatar: {
-            public_id: mycloud.public_id,
-            url: mycloud.secure_url,
-        }, otp, otp_expiry: new Date(Date.now() + 5*60*1000)});
+        user = await User.create({name, email, password, otp, otp_expiry: new Date(Date.now() + 5*60*1000)});
 
         await sendMail(email, "Verify Your account", `Your otp is ${otp}`);
         sendToken(res, user, 201, "Otp is send to your email. Please verify your email");
@@ -201,21 +198,21 @@ export const updateProfile = async(req,res) => {
         const user = await User.findById(req.user._id);
 
         const {name} = req.body;
-        const avatar = req.files.avatar.tempFilePath;
+        // const avatar = req.files.avatar.tempFilePath;
 
         if(name) user.name = name;
-        if(avatar) {
-            await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+        // if(avatar) {
+        //     await cloudinary.v2.uploader.destroy(user.avatar.public_id);
 
-            const mycloud = await cloudinary.v2.uploader.upload(avatar);
+        //     const mycloud = await cloudinary.v2.uploader.upload(avatar);
 
-            fs.rmSync("./tmp", {recursive: true});
+        //     fs.rmSync("./tmp", {recursive: true});
 
-            user.avatar = {
-                public_id: mycloud.public_id,
-                url: mycloud.secure_url,
-            };
-        }
+        //     user.avatar = {
+        //         public_id: mycloud.public_id,
+        //         url: mycloud.secure_url,
+        //     };
+        // }
         await user.save();
 
         res.status(200).json({
